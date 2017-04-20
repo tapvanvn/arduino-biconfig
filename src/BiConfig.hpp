@@ -5,6 +5,7 @@
 #ifndef _H_BICONFIG
 #define _H_BICONFIG
 
+//#include <arduino.h>
 #include <stdint.h>
 #include <SimpleLinker.hpp>
 #include <SD.h>
@@ -19,6 +20,7 @@ public:
     {
     public:
         virtual void write(File*) = 0;
+        virtual uint8_t* cloneData() = 0;
     };
 
     template <typename T, uint8_t Header>
@@ -41,12 +43,23 @@ public:
         }
         void write(File* file)
         {
+            file->write((uint8_t)0x02);
             file->write((uint8_t)Header);
             file->write((uint8_t*)&_length,sizeof(T));
             if(_length > 0)
             {
                 file->write(_data, _length);
             }
+        }
+        uint8_t* cloneData()
+        {
+            if(_length > 0)
+            {
+                uint8_t* clone_data = new uint8_t[_length];
+                memcpy(clone_data, _data, _length);
+                return clone_data;
+            }
+            return 0;
         }
     protected:
         T _length;
@@ -129,16 +142,20 @@ public:
                 _end = element;
             }
         }
+
         void add(const char* key, IValue* val)
         {
-            char* element_key = new char[strlen(key) + 1];
-            element_key[strlen(key)] = '\0';
-            memcpy(element_key, key, strlen(key));
-
             Element* element = new Element();
-            element->_value = new KeyValuePair();
-            element->_value->_key = element_key;
-            element->_value->_value = val;
+            if(key)
+            {
+                char* element_key = new char[strlen(key) + 1];
+                element_key[strlen(key)] = '\0';
+                memcpy(element_key, key, strlen(key));
+
+                element->_value = new KeyValuePair();
+                element->_value->_key = element_key;
+                element->_value->_value = val;
+            }
             add(element);
         }
 
@@ -166,19 +183,158 @@ public:
             add(key, element_value);
         }
 
+        uint8_t* get(const char* path)
+        {
+            //Serial.print("get path:");
+            //Serial.println(path);
+
+            uint8_t key_level = 0;
+            uint8_t group_level = 0;
+
+            char *key_ptr = path, *key_last_ptr = path;
+
+            Element* pointer = _begin;
+
+            while(*key_ptr)
+            {
+                //Serial.println("loop");
+                //find current key. the current key is determine by key_last_ptr and key_ptr
+                while(*key_ptr && *key_ptr != '/')
+                {
+                    //Serial.println(*key_ptr, HEX);
+                    key_ptr++;
+                }
+
+                //Serial.print("curretn:");
+                //Serial.println(*key_ptr, DEC);
+                //if not same level of group so move to the correct level
+                while(key_level != group_level && pointer)
+                {
+                    if(!pointer->_value)
+                    {
+                        group_level--;
+                    }
+                    else if(!pointer->_value->_value)
+                    {
+                        group_level ++;
+                        //Serial.print("group_level");
+                        //Serial.println(group_level);
+                    }
+                    pointer = pointer->_next;
+                }
+                //find element match that key at same level
+                while(pointer)
+                {
+                    if(pointer->_value)
+                    {
+                        char* element_key = pointer->_value->_key;
+
+                        //Serial.print("element:");
+                        //Serial.println(element_key);
+
+                        //Serial.print("last:");
+                        //Serial.println(key_last_ptr);
+
+                        char* tmp_key_ptr = key_last_ptr;
+
+                        //go over the matched characters
+                        while(*element_key && *element_key++ == *tmp_key_ptr++)
+                        {
+                            ;
+                        }
+
+                        if(!*element_key && tmp_key_ptr == key_ptr)
+                        {
+                            //Serial.println("found match element");
+                            //found element if no sub group request so return value
+                            if(!*key_ptr)
+                            {
+                                //Serial.println("end search");
+                                if (pointer->_value->_value)
+                                {
+                                    return pointer->_value->_value->cloneData();
+                                }
+                                return 0;
+                            }
+                            break;
+                        }
+                        else
+                        {
+                            //if we met a subgroup but not match the key so pass it
+                            if(!pointer->_value->_value)
+                            {
+                                int count_level = 1;
+                                while(pointer->_value && count_level > 0)
+                                {
+                                    if(!pointer->_value)
+                                    {
+                                        count_level--;
+                                    }
+                                    if(pointer->_value && pointer->_value->_key && !pointer->_value->_value)
+                                    {
+                                        count_level ++;
+                                    }
+
+                                    pointer = pointer->_next;
+                                }
+                            }
+                        }
+                    }
+                    pointer = pointer->_next;
+                }
+
+                //key is / so go next character
+                //key_ptr++;
+                key_level++;
+                key_last_ptr = ++key_ptr;
+                //Serial.print("key level:");
+                //Serial.println(key_level);
+            }
+
+            return 0;
+        }
+
+        void addGroup(const char* key, Ledger* sub_ledger )
+        {
+            add(key, (IValue*)0);
+
+            if(sub_ledger && sub_ledger->_begin)
+            {
+                if(!_begin)
+                {
+                    _begin = sub_ledger->_begin;
+                }
+                else
+                {
+                    _end->_next = sub_ledger->_begin;
+                }
+                _end = sub_ledger->_end;
+
+                sub_ledger->_begin = sub_ledger->_end = 0;
+            }
+
+            add((const char*) 0, (IValue*) 0);
+
+        }
+
         void write( File* file)
         {
             Element* pointer = _begin;
             while(pointer != 0)
             {
-                if(pointer->_value->_key)
+                if(pointer->_value)
                 {
+                    file->write((uint8_t)0x01);
                     file->write(pointer->_value->_key, strlen(pointer->_value->_key) + 1);
 
                     if(pointer->_value->_value)
                     {
                         pointer->_value->_value->write(file);
                     }
+                }
+                else
+                {
+                    file->write((uint8_t)0x10);
                 }
 
                 pointer = pointer->_next;
@@ -189,19 +345,23 @@ public:
     };
 
 
-    Ledger* read(File* file)
+    static Ledger* read(File* file)
     {
+        //Serial.println("begin read");
         Ledger* ledger = new Ledger();
 
         uint8_t last_sign = 0x00;
+        char* curr_key = 0;
         while(file->available())
         {
             uint8_t sign = file->read();
-            char* curr_key = 0;
+
             if(sign == 0x01)
             {
                 //read key
                 char* key = readKey(file);
+                //Serial.print("key:");
+                //Serial.println(key);
 
                 if(last_sign == 0x01)
                 {
@@ -218,9 +378,14 @@ public:
             }
             else if(sign == 0x02)
             {
+                //Serial.println("pair");
                 //read value
                 Ledger::Element* element = new Ledger::Element();
                 element->_value = new KeyValuePair();
+
+                //Serial.print("Key:");
+                //Serial.println(curr_key);
+
                 element->_value->_key = curr_key;
                 element->_value->_value = readValue(file);
                 ledger->add(element);
@@ -229,19 +394,19 @@ public:
             {
                 //end group
                 Ledger::Element* element = new Ledger::Element();
-                element->_value = 0;
                 ledger->add(element);
             }
             last_sign = sign;
         }
+        return ledger;
     }
 
 private:
-    char* readKey(File* file)
+    static char* readKey(File* file)
     {
         String str = "";
         char chr = file->read();
-        while(chr != '\0')
+        while(chr)
         {
             str += chr;
             chr = file->read();
@@ -250,11 +415,11 @@ private:
         char* chr_str = new char[str.length() + 1];
         memcpy(chr_str, str.c_str(), str.length());
         chr_str[str.length()] = '\0';
-
         return chr_str;
     }
-    IValue* readValue(File* file)
+    static IValue* readValue(File* file)
     {
+        //Serial.println("readValue");
         uint8_t type = file->read();
 
         if(type == 0x21)
