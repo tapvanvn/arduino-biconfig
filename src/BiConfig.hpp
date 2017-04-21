@@ -159,6 +159,8 @@ public:
             add(element);
         }
 
+
+
         void add(const char* key, uint8_t val)
         {
             I8Value* element_value = new I8Value(1, &val);
@@ -181,6 +183,56 @@ public:
         {
             I8Value* element_value = new I8Value(8, (uint8_t*)&val);
             add(key, element_value);
+        }
+
+        void add(const char* key, uint8_t* data, uint8_t len)
+        {
+            I8Value* element_value = new I8Value(len,data);
+            add(key, element_value);
+        }
+
+        void add(const char* key, uint8_t* data, uint16_t len)
+        {
+            I16Value* element_value = new I16Value(len,data);
+            add(key, element_value);
+        }
+
+        void add(const char* key, uint8_t data, uint32_t len)
+        {
+            I32Value* element_value = new I32Value(len,data);
+            add(key, element_value);
+        }
+
+        void add(const char* key, uint8_t data, uint64_t len)
+        {
+            I64Value* element_value = new I64Value(len,data);
+            add(key, element_value);
+        }
+
+        void add(const char* key, const char* value)
+        {
+            uint64_t len = strlen(value);
+
+            if(len >= UINT32_MAX)
+            {
+                I64Value* element_value = new I64Value((uint64_t)len + 1,(uint8_t*)value);
+                add(key, element_value);
+            }
+            else if(len >= UINT16_MAX)
+            {
+                I32Value* element_value = new I32Value((uint32_t)len + 1,(uint8_t*)value);
+                add(key, element_value);
+            }
+            else if(len >= UINT8_MAX)
+            {
+                I16Value* element_value = new I16Value((uint16_t)len + 1,(uint8_t*)value);
+                add(key, element_value);
+            }
+            else
+            {
+                I8Value* element_value = new I8Value((uint8_t)len + 1,(uint8_t*)value);
+                add(key, element_value);
+            }
         }
 
         uint8_t* get(const char* path)
