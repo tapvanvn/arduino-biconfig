@@ -1,8 +1,39 @@
-#include <BiConfig.hpp>
+#include "../../src/BiConfig.hpp"
 
-
+#include <SD.h>
 #define SD_PIN 4
 #define CONF_FILE "config.bcf"
+
+struct SdDataStream : IDataStream 
+{
+    SdDataStream(File& file):
+        m_file{file}
+    {
+
+    }
+    inline void write(uint8_t val)
+    {
+        m_file.write(val);
+    }
+    inline void write(uint8_t* data, size_t len)
+    {
+        m_file.write(data, len);
+    }
+    inline uint8_t read()
+    {
+        return m_file.read();
+    }
+    inline void read(uint8_t* data, size_t len)
+    {
+        m_file.read(data, len);
+    }
+    inline bool available()
+    {
+        return m_file.available();
+    }
+private:
+    File& m_file;
+};
 
 void setup()
 {
@@ -23,7 +54,8 @@ void setup()
 
             if(file)
             {
-                BiConfig::Ledger* ledger = BiConfig::read(&file);
+                SdDataStream stream{file};
+                BiConfig::Ledger* ledger = BiConfig::read(&stream);
 
                 if(ledger)
                 {
@@ -70,6 +102,7 @@ void setup()
             File file = SD.open(CONF_FILE, FILE_WRITE);
             if(file)
             {
+                SdDataStream stream{file};
                 Serial.println("begin test");
                 BiConfig::Ledger* ledger = new BiConfig::Ledger();
                 ledger->add("test8",(uint8_t)5);
@@ -79,9 +112,9 @@ void setup()
 
                 BiConfig::Ledger* ledger2 = new BiConfig::Ledger();
                 ledger2->add("sub8",(uint8_t)5);
-                lledger->addGroup("subgroup", ledger2);
+                ledger->addGroup("subgroup", ledger2);
 
-                ledger->write(&file);
+                ledger->write(&stream);
 
                 delete ledger;
                 delete ledger2;

@@ -5,32 +5,54 @@
 #ifndef _H_BICONFIG
 #define _H_BICONFIG
 
-//#include <arduino.h>
 #include <stdint.h>
-#include <SimpleLinker.hpp>
-#include <SD.h>
+#include <string>
+#include "SimpleLinker.hpp"
 
-using namespace std;
+struct IDataStream
+{
+    virtual void write(uint8_t) = 0;
+    virtual void write(uint8_t* data, size_t len) = 0;
+    virtual uint8_t read() = 0; //read next byte
+    virtual void read(uint8_t* data, size_t len) = 0;
+    virtual bool available() = 0; //return true if available for read/write
+};
 
 class BiConfig
 {
+    static inline constexpr uint8_t s_0x01 = 0x01;
+    static inline constexpr uint8_t s_0x02 = 0x02;
+    static inline constexpr uint8_t s_0x10 = 0x10;
+    static inline constexpr uint8_t s_0x21 = 0x21;
+    static inline constexpr uint8_t s_0x22 = 0x22;
+    static inline constexpr uint8_t s_0x23 = 0x23;
+    static inline constexpr uint8_t s_0x24 = 0x24;
 public:
 
     class IValue
     {
     public:
-        virtual void write(File*) = 0;
+        virtual void write(IDataStream*) = 0;
         virtual uint8_t* cloneData() = 0;
     };
 
-    template <typename T, uint8_t Header>
+    template <typename StoreT, uint8_t HeaderT>
     class TValue : public IValue
     {
     public:
-        TValue(T length, uint8_t* data)
+        template <typename ValueT>
+        TValue(const ValueT& val):
+            _length{sizeof(ValueT)}
         {
-            _length = length;
-            _data = data;
+            _data = new uint8_t[_length];
+            memcpy(_data, reinterpret_cast<uint8_t const*>(&val), _length);
+        }
+
+        TValue(StoreT length, const uint8_t* data):
+            _length{length}
+        {
+            _data = new uint8_t[length];
+            memcpy(_data, data, length);
         }
         ~TValue()
         {
@@ -41,11 +63,11 @@ public:
                 _length = 0;
             }
         }
-        void write(File* file)
+        void write(IDataStream* file)
         {
-            file->write((uint8_t)0x02);
-            file->write((uint8_t)Header);
-            file->write((uint8_t*)&_length,sizeof(T));
+            file->write(s_0x02);
+            file->write(HeaderT);
+            file->write(reinterpret_cast<uint8_t*>(&_length),sizeof(StoreT));
             if(_length > 0)
             {
                 file->write(_data, _length);
@@ -62,8 +84,8 @@ public:
             return 0;
         }
     protected:
-        T _length;
-        uint8_t* _data;
+        StoreT _length{0};
+        uint8_t* _data{nullptr};
     };
 
     typedef TValue<uint8_t, 0x21> I8Value;
@@ -74,9 +96,9 @@ public:
     class KeyValuePair
     {
     public:
-        char* _key;
-        IValue* _value;
-        KeyValuePair() : _key(0), _value(0)
+        char* _key{nullptr};
+        IValue* _value{nullptr};
+        KeyValuePair()
         {
 
         }
@@ -85,7 +107,6 @@ public:
             if(_key)
             {
                 delete[] _key;
-                _key = 0;
             }
             if(_value)
             {
@@ -96,37 +117,7 @@ public:
 
     class Ledger : public SimpleLinker<KeyValuePair>
     {
-    public:
-        Ledger()
-        {
-            _begin = _end = 0;
-        }
-
-        ~Ledger()
-        {
-            //free memory
-            while(_begin != 0)
-            {
-                Element* ptr = _begin;
-                _begin = ptr->_next;
-
-                if(ptr->_value)
-                {
-                    delete ptr->_value;
-                }
-                delete ptr;
-            }
-        }
-
-        void loop( void(*callback)(Element*) )
-        {
-            Element* pointer = _begin;
-            while(pointer != 0)
-            {
-                callback(pointer);
-                pointer = pointer->_next;
-            }
-        }
+        friend class BiConfig;
 
         void add(Element* element)
         {
@@ -159,51 +150,81 @@ public:
             add(element);
         }
 
-
-
-        void add(const char* key, uint8_t val)
+    public:
+        Ledger()
         {
-            I8Value* element_value = new I8Value(1, &val);
+            _begin = _end = 0;
+        }
+
+        ~Ledger()
+        {
+            //free memory
+            while(_begin != 0)
+            {
+                Element* ptr = _begin;
+                _begin = ptr->_next;
+
+                if(ptr->_value)
+                {
+                    delete ptr->_value;
+                }
+                delete ptr;
+            }
+        }
+
+        void loop( void(*callback)(Element*) )
+        {
+            Element* pointer = _begin;
+            while(pointer != nullptr)
+            {
+                callback(pointer);
+                pointer = pointer->_next;
+            }
+        }
+
+        void add(const char* key, const uint8_t& val)
+        {
+            I8Value* element_value = new I8Value(val);
             add(key, element_value);
         }
 
-        void add(const char* key, uint16_t val)
+        void add(const char* key, const uint16_t& val)
         {
-            I8Value* element_value = new I8Value(2, (uint8_t*)&val);
+            I8Value* element_value = new I8Value(val);
             add(key, element_value);
         }
 
-        void add(const char* key, uint32_t val)
+        void add(const char* key, const uint32_t& val)
         {
-            I8Value* element_value = new I8Value(4, (uint8_t*)&val);
+            I8Value* element_value = new I8Value(val);
             add(key, element_value);
         }
 
-        void add(const char* key, uint64_t val)
+        void add(const char* key, const uint64_t& val)
         {
-            I8Value* element_value = new I8Value(8, (uint8_t*)&val);
+            I8Value* element_value = new I8Value(val);
             add(key, element_value);
         }
 
-        void add(const char* key, uint8_t* data, uint8_t len)
+        void add(const char* key, const uint8_t * data, uint8_t len)
         {
             I8Value* element_value = new I8Value(len,data);
             add(key, element_value);
         }
 
-        void add(const char* key, uint8_t* data, uint16_t len)
+        void add(const char* key, const uint8_t * data, uint16_t len)
         {
             I16Value* element_value = new I16Value(len,data);
             add(key, element_value);
         }
 
-        void add(const char* key, uint8_t data, uint32_t len)
+        void add(const char* key, const uint8_t* data, uint32_t len)
         {
             I32Value* element_value = new I32Value(len,data);
             add(key, element_value);
         }
 
-        void add(const char* key, uint8_t data, uint64_t len)
+        void add(const char* key, const uint8_t* data, uint64_t len)
         {
             I64Value* element_value = new I64Value(len,data);
             add(key, element_value);
@@ -215,7 +236,7 @@ public:
 
             if(len >= UINT32_MAX)
             {
-                I64Value* element_value = new I64Value((uint64_t)len + 1,(uint8_t*)value);
+                I64Value* element_value = new I64Value((uint64_t)len + 1, reinterpret_cast<const uint8_t*>(value));
                 add(key, element_value);
             }
             else if(len >= UINT16_MAX)
@@ -243,7 +264,7 @@ public:
             uint8_t key_level = 0;
             uint8_t group_level = 0;
 
-            char *key_ptr = path, *key_last_ptr = path;
+            char const*key_ptr = path, *key_last_ptr = path;
 
             Element* pointer = _begin;
 
@@ -287,7 +308,7 @@ public:
                         //Serial.print("last:");
                         //Serial.println(key_last_ptr);
 
-                        char* tmp_key_ptr = key_last_ptr;
+                        char const* tmp_key_ptr = key_last_ptr;
 
                         //go over the matched characters
                         while(*element_key && *element_key++ == *tmp_key_ptr++)
@@ -369,15 +390,15 @@ public:
 
         }
 
-        void write( File* file)
+        void write( IDataStream* file)
         {
             Element* pointer = _begin;
             while(pointer != 0)
             {
                 if(pointer->_value)
                 {
-                    file->write((uint8_t)0x01);
-                    file->write(pointer->_value->_key, strlen(pointer->_value->_key) + 1);
+                    file->write(s_0x01);
+                    file->write(reinterpret_cast<uint8_t*>(pointer->_value->_key), strlen(pointer->_value->_key) + 1);
 
                     if(pointer->_value->_value)
                     {
@@ -386,7 +407,7 @@ public:
                 }
                 else
                 {
-                    file->write((uint8_t)0x10);
+                    file->write(s_0x10);
                 }
 
                 pointer = pointer->_next;
@@ -397,25 +418,25 @@ public:
     };
 
 
-    static Ledger* read(File* file)
+    static Ledger* read(IDataStream* file)
     {
         //Serial.println("begin read");
         Ledger* ledger = new Ledger();
 
         uint8_t last_sign = 0x00;
-        char* curr_key = 0;
+        char* curr_key {nullptr};
         while(file->available())
         {
             uint8_t sign = file->read();
 
-            if(sign == 0x01)
+            if(sign == s_0x01)
             {
                 //read key
                 char* key = readKey(file);
                 //Serial.print("key:");
                 //Serial.println(key);
 
-                if(last_sign == 0x01)
+                if(last_sign == s_0x01)
                 {
                     //if last sign is a key so we begin a sub group
 
@@ -428,7 +449,7 @@ public:
                 curr_key = key; //we dont need to delete last key here becouse it had beed used at other place.
 
             }
-            else if(sign == 0x02)
+            else if(sign == s_0x02)
             {
                 //Serial.println("pair");
                 //read value
@@ -442,7 +463,7 @@ public:
                 element->_value->_value = readValue(file);
                 ledger->add(element);
             }
-            else if(sign == 0x10)
+            else if(sign == s_0x10)
             {
                 //end group
                 Ledger::Element* element = new Ledger::Element();
@@ -454,9 +475,9 @@ public:
     }
 
 private:
-    static char* readKey(File* file)
+    static char* readKey(IDataStream* file)
     {
-        String str = "";
+        std::string str{};
         char chr = file->read();
         while(chr)
         {
@@ -469,12 +490,12 @@ private:
         chr_str[str.length()] = '\0';
         return chr_str;
     }
-    static IValue* readValue(File* file)
+    static IValue* readValue(IDataStream* file)
     {
         //Serial.println("readValue");
         uint8_t type = file->read();
 
-        if(type == 0x21)
+        if(type == s_0x21)
         {
             uint8_t len = file->read();
             uint8_t* data = new uint8_t[len];
@@ -482,7 +503,7 @@ private:
             I8Value* val = new I8Value(len, data);
             return val;
         }
-        else if(type == 0x22)
+        else if(type == s_0x22)
         {
             uint16_t len = file->read() << 8 | file->read();
             uint8_t* data = new uint8_t[len];
@@ -490,7 +511,7 @@ private:
             I16Value* val = new I16Value(len, data);
             return val;
         }
-        else if(type == 0x23)
+        else if(type == s_0x23)
         {
             uint8_t buff[4];
             for(uint8_t i = 0; i< 4; i++)
@@ -503,7 +524,7 @@ private:
             I32Value* val = new I32Value(len, data);
             return val;
         }
-        else if(type == 0x24)
+        else if(type == s_0x24)
         {
             uint8_t buff[8];
             for(uint8_t i = 0; i< 8; i++)
