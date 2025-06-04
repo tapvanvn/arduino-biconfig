@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <string>
+#include <cstring>
 #include "SimpleLinker.hpp"
 
 struct IDataStream
